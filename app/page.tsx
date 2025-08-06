@@ -55,39 +55,25 @@ export default function ChatPage() {
 
   const handleEditMessage = (messageId: string, content: string) => {
     setEditingMessageId(messageId)
-    setEditingContent(content)
+    // Find the message object
+    const msg = messages.find((m: any) => m.id === messageId)
+    let text = ""
+    if (msg && Array.isArray(msg.parts)) {
+      text = msg.parts
+        .filter((p: any) => p.type === "text" && p.text)
+        .map((p: any) => p.text)
+        .join("\n\n")
+    }
+    setEditingContent(text)
   }
 
   const handleSaveEdit = (messageId: string) => {
-    const messageIndex = messages.findIndex((m: any) => m.id === messageId)
-    if (messageIndex === -1) return
-
-    const updatedMessages = [...messages]
-    updatedMessages[messageIndex] = {
-      ...updatedMessages[messageIndex],
-      parts: [
-        {
-          type: "text",
-          text: editingContent,
-        },
-      ],
-    }
-
-    const messagesToKeep = updatedMessages.slice(0, messageIndex + 1)
-    setMessages(messagesToKeep)
-
     setEditingMessageId(null)
     setEditingContent("")
-
-    if (messages[messageIndex].role === "user") {
-      // Regenerate response by sending the edited message
-      const editedMessage = messagesToKeep[messagesToKeep.length - 1]
-      const messageContent = Array.isArray(editedMessage.parts)
-        ? editedMessage.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join(" ")
-        : ""
-      
-      sendMessage({ text: messageContent, files: undefined })
-    }
+    sendMessage({
+      text: editingContent,
+      files: undefined,
+    })
   }
 
   const handleCancelEdit = () => {
@@ -519,18 +505,23 @@ export default function ChatPage() {
                         </div>
                       )}
                       {editingMessageId === message.id ? (
-                        <div className="space-y-3">
+                        <div className="space-y-3 w-full">
                           <Textarea
                             value={editingContent}
                             onChange={(e) => setEditingContent(e.target.value)}
                             className="min-h-[100px] resize-none bg-gray-700 border-gray-600 text-white"
                             autoFocus
                           />
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 w-full">
                             <Button size="sm" onClick={() => handleSaveEdit(message.id)}>
                               Save & Submit
                             </Button>
-                            <Button size="sm" variant="outline" onClick={handleCancelEdit}>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="border border-gray-500 text-gray-200"
+                              onClick={handleCancelEdit}
+                            >
                               Cancel
                             </Button>
                           </div>

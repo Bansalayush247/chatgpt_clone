@@ -65,7 +65,12 @@ export default function ChatPage() {
     const updatedMessages = [...messages]
     updatedMessages[messageIndex] = {
       ...updatedMessages[messageIndex],
-      content: editingContent,
+      parts: [
+        {
+          type: "text",
+          text: editingContent,
+        },
+      ],
     }
 
     const messagesToKeep = updatedMessages.slice(0, messageIndex + 1)
@@ -77,12 +82,11 @@ export default function ChatPage() {
     if (messages[messageIndex].role === "user") {
       // Regenerate response by sending the edited message
       const editedMessage = messagesToKeep[messagesToKeep.length - 1]
-      const messageContent = editedMessage.content || 
-        (Array.isArray(editedMessage.parts) 
-          ? editedMessage.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join(" ")
-          : "")
+      const messageContent = Array.isArray(editedMessage.parts)
+        ? editedMessage.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join(" ")
+        : ""
       
-      sendMessage({ text: messageContent, files: null })
+      sendMessage({ text: messageContent, files: undefined })
     }
   }
 
@@ -100,12 +104,11 @@ export default function ChatPage() {
     setMessages(messagesToKeep)
     
     const lastUserMessage = messages[lastUserMessageIndex]
-    const messageContent = lastUserMessage.content || 
-      (Array.isArray(lastUserMessage.parts) 
-        ? lastUserMessage.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join(" ")
-        : "")
+    const messageContent = Array.isArray(lastUserMessage.parts) 
+      ? lastUserMessage.parts.filter((p: any) => p.type === "text").map((p: any) => p.text).join(" ")
+      : ""
     
-    sendMessage({ text: messageContent, files: null })
+    sendMessage({ text: messageContent, files: undefined })
   }
 
   const handleFileUpload = (files: FileList) => {
@@ -156,8 +159,14 @@ export default function ChatPage() {
     
     // Create a conversation title from the first user message
     const firstUserMessage = messages.find((m: any) => m.role === "user")
-    const title = firstUserMessage?.content 
-      ? firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? "..." : "")
+    const title = firstUserMessage && Array.isArray(firstUserMessage.parts)
+      ? (() => {
+          const text = firstUserMessage.parts
+            .filter((p: any) => p.type === "text" && p.text)
+            .map((p: any) => p.text)
+            .join(" ");
+          return text.slice(0, 50) + (text.length > 50 ? "..." : "");
+        })()
       : "New conversation"
     
     // If this is a new conversation, create it
@@ -183,8 +192,16 @@ export default function ChatPage() {
                 messages: [...messages], 
                 updatedAt: new Date().toISOString(),
                 // Update title if it was just "New conversation" and we now have user content
-                title: conv.title === "New conversation" && firstUserMessage?.content 
-                  ? firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? "..." : "")
+                title: conv.title === "New conversation" && firstUserMessage
+                  ? (() => {
+                      const text = Array.isArray(firstUserMessage.parts)
+                        ? firstUserMessage.parts
+                            .filter((p: any) => p.type === "text" && p.text)
+                            .map((p: any) => p.text)
+                            .join(" ")
+                        : ""
+                      return text.slice(0, 50) + (text.length > 50 ? "..." : "")
+                    })()
                   : conv.title
               }
             : conv
@@ -205,23 +222,25 @@ export default function ChatPage() {
     if (!input.trim()) return
 
     const messageContent = input.trim()
+    // Store files to send with this message
+    const filesToSend = uploadedFiles ? uploadedFiles : undefined
     setInput("")
 
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
 
-    // Send the message to ChatGPT
+    // Send the message to ChatGPT, including files
     sendMessage({ 
       text: messageContent, 
-      files: uploadedFiles ? Array.from(uploadedFiles) : null 
+      files: filesToSend
     })
 
     // Send the message and files to Gemini endpoint
-    if (uploadedFiles && uploadedFiles.length > 0) {
+    if (filesToSend && filesToSend.length > 0) {
       const formData = new FormData()
       formData.append('text', messageContent)
-      Array.from(uploadedFiles).forEach((file) => {
+      Array.from(filesToSend).forEach((file: File) => {
         formData.append('files', file)
       })
       fetch('/api/gemini', {
@@ -229,13 +248,15 @@ export default function ChatPage() {
         body: formData
       })
     } else {
-      // If no files, send as JSON
       fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: messageContent })
       })
     }
+
+    // Clear uploaded files AFTER sending
+    setUploadedFiles(null)
 
     // If this is the first message and no current conversation, create a new one immediately
     if (!currentConversationId && messages.length === 0) {
@@ -484,6 +505,19 @@ export default function ChatPage() {
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1 space-y-2">
+                      {/* Show files above user message */}
+                      {message.files && message.files.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {message.files.map((file: any, index: number) => (
+                            <Card key={index} className="p-2 text-xs bg-gray-700 border-gray-600">
+                              <div className="flex items-center gap-2 text-gray-300">
+                                <Paperclip className="h-3 w-3" />
+                                <span className="truncate max-w-[150px]">{file.name}</span>
+                              </div>
+                            </Card>
+                          ))}
+                        </div>
+                      )}
                       {editingMessageId === message.id ? (
                         <div className="space-y-3">
                           <Textarea
@@ -513,18 +547,6 @@ export default function ChatPage() {
                                 : "")}
                             </p>
                           </div>
-                          {(message as any).files && (message as any).files.length > 0 && (
-                            <div className="flex flex-wrap gap-2 mt-2">
-                              {(message as any).files.map((file: any, index: number) => (
-                                <Card key={index} className="p-2 text-xs bg-gray-700 border-gray-600">
-                                  <div className="flex items-center gap-2 text-gray-300">
-                                    <Paperclip className="h-3 w-3" />
-                                    <span className="truncate max-w-[150px]">{file.name}</span>
-                                  </div>
-                                </Card>
-                              ))}
-                            </div>
-                          )}
                           {message.role === "user" && (
                             <div className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-2 mt-2">
                               <Button
